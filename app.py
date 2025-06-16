@@ -34,31 +34,31 @@ model_m = Qwen2_5_VLForConditionalGeneration.from_pretrained(
 ).to(device).eval()
 
 # Load Qwen2-VL-OCR-2B-Instruct
-MODEL_ID_X = "prithivMLmods/Qwen2-VL-OCR-2B-Instruct"
-processor_x = AutoProcessor.from_pretrained(MODEL_ID_X, trust_remote_code=True)
-model_x = Qwen2VLForConditionalGeneration.from_pretrained(
-    MODEL_ID_X,
-    trust_remote_code=True,
-    torch_dtype=torch.float16
-).to(device).eval()
+#MODEL_ID_X = "prithivMLmods/Qwen2-VL-OCR-2B-Instruct"
+#processor_x = AutoProcessor.from_pretrained(MODEL_ID_X, trust_remote_code=True)
+#model_x = Qwen2VLForConditionalGeneration.from_pretrained(
+#    MODEL_ID_X,
+#    trust_remote_code=True,
+#    torch_dtype=torch.float16
+#).to(device).eval()
 
 # Load Nanonets-OCR-s
-MODEL_ID_V = "nanonets/Nanonets-OCR-s"
-processor_v = AutoProcessor.from_pretrained(MODEL_ID_V, trust_remote_code=True)
-model_v = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-    MODEL_ID_V,
-    trust_remote_code=True,
-    torch_dtype=torch.float16
-).to(device).eval()
+#MODEL_ID_V = "nanonets/Nanonets-OCR-s"
+#processor_v = AutoProcessor.from_pretrained(MODEL_ID_V, trust_remote_code=True)
+#model_v = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+#    MODEL_ID_V,
+#    trust_remote_code=True,
+#    torch_dtype=torch.float16
+#).to(device).eval()
 
 # Load aya-vision-8b
-MODEL_ID_A = "CohereForAI/aya-vision-8b"
-processor_a = AutoProcessor.from_pretrained(MODEL_ID_A, trust_remote_code=True)
-model_a = AutoModelForImageTextToText.from_pretrained(
-    MODEL_ID_A,
-    trust_remote_code=True,
-    torch_dtype=torch.float16
-).to(device).eval()
+#MODEL_ID_A = "CohereForAI/aya-vision-8b"
+#processor_a = AutoProcessor.from_pretrained(MODEL_ID_A, trust_remote_code=True)
+#model_a = AutoModelForImageTextToText.from_pretrained(
+#    MODEL_ID_A,
+#    trust_remote_code=True,
+#    torch_dtype=torch.float16
+#).to(device).eval()
 
 
 def downsample_video(video_path):
