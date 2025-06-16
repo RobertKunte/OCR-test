@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Multimodal OCR</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+    </style>
+</head>
+<body>
+<h1>Multimodal OCR</h1>
+<h2>Image Inference</h2>
+<form method="post" action="/image" enctype="multipart/form-data">
+    <label>Query: <input type="text" name="text"></label><br>
+    <label>Image: <input type="file" name="image" accept="image/*"></label><br>
+    <label>Model:
+        <select name="model">
+            <option value="Nanonets-OCR-s">Nanonets-OCR-s</option>
+            <option value="Qwen2-VL-OCR-2B-Instruct">Qwen2-VL-OCR-2B-Instruct</option>
+            <option value="RolmOCR">RolmOCR</option>
+            <option value="Aya-Vision">Aya-Vision</option>
+        </select>
+    </label><br>
+    <button type="submit">Submit</button>
+</form>
+
+<h2>Video Inference</h2>
+<form method="post" action="/video" enctype="multipart/form-data">
+    <label>Query: <input type="text" name="text"></label><br>
+    <label>Video: <input type="file" name="video" accept="video/*"></label><br>
+    <label>Model:
+        <select name="model">
+            <option value="Nanonets-OCR-s">Nanonets-OCR-s</option>
+            <option value="Qwen2-VL-OCR-2B-Instruct">Qwen2-VL-OCR-2B-Instruct</option>
+            <option value="RolmOCR">RolmOCR</option>
+            <option value="Aya-Vision">Aya-Vision</option>
+        </select>
+    </label><br>
+    <button type="submit">Submit</button>
+</form>
+
+{% if result %}
+<h3>Result</h3>
+<pre>{{ result }}</pre>
+{% endif %}
+</body>
+</html>
