@@ -1,13 +1,8 @@
 import os
-import random
-import uuid
-import json
 import time
-import asyncio
 from threading import Thread
 
-import gradio as gr
-import spaces
+from flask import Flask, render_template, request
 import torch
 import numpy as np
 from PIL import Image
@@ -20,13 +15,13 @@ from transformers import (
     AutoProcessor,
     TextIteratorStreamer,
 )
-from transformers.image_utils import load_image
 
 # Constants for text generation
 MAX_MAX_NEW_TOKENS = 2048
 DEFAULT_MAX_NEW_TOKENS = 1024
 MAX_INPUT_TOKEN_LENGTH = int(os.getenv("MAX_INPUT_TOKEN_LENGTH", "4096"))
 
+# Select device
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 # Load RolmOCR
@@ -65,11 +60,9 @@ model_a = AutoModelForImageTextToText.from_pretrained(
     torch_dtype=torch.float16
 ).to(device).eval()
 
+
 def downsample_video(video_path):
-    """
-    Downsamples the video to evenly spaced frames.
-    Each frame is returned as a PIL image along with its timestamp.
-    """
+    """Downsamples the video to evenly spaced frames."""
     vidcap = cv2.VideoCapture(video_path)
     total_frames = int(vidcap.get(cv2.CAP_PROP_FRAME_COUNT))
     fps = vidcap.get(cv2.CAP_PROP_FPS)
@@ -86,16 +79,18 @@ def downsample_video(video_path):
     vidcap.release()
     return frames
 
-@spaces.GPU
-def generate_image(model_name: str, text: str, image: Image.Image,
-                   max_new_tokens: int = 1024,
-                   temperature: float = 0.6,
-                   top_p: float = 0.9,
-                   top_k: int = 50,
-                   repetition_penalty: float = 1.2):
-    """
-    Generates responses using the selected model for image input.
-    """
+
+def generate_image(
+    model_name: str,
+    text: str,
+    image: Image.Image,
+    max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS,
+    temperature: float = 0.6,
+    top_p: float = 0.9,
+    top_k: int = 50,
+    repetition_penalty: float = 1.2,
+):
+    """Generates responses using the selected model for image input."""
     if model_name == "RolmOCR":
         processor = processor_m
         model = model_m
@@ -123,17 +118,30 @@ def generate_image(model_name: str, text: str, image: Image.Image,
             {"type": "text", "text": text},
         ]
     }]
-    prompt_full = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+    prompt_full = processor.apply_chat_template(
+        messages, tokenize=False, add_generation_prompt=True
+    )
     inputs = processor(
         text=[prompt_full],
         images=[image],
         return_tensors="pt",
         padding=True,
         truncation=False,
-        max_length=MAX_INPUT_TOKEN_LENGTH
+        max_length=MAX_INPUT_TOKEN_LENGTH,
     ).to(device)
-    streamer = TextIteratorStreamer(processor, skip_prompt=True, skip_special_tokens=True)
-    generation_kwargs = {**inputs, "streamer": streamer, "max_new_tokens": max_new_tokens}
+    streamer = TextIteratorStreamer(
+        processor, skip_prompt=True, skip_special_tokens=True
+    )
+    generation_kwargs = {
+        **inputs,
+        "streamer": streamer,
+        "max_new_tokens": max_new_tokens,
+        "do_sample": True,
+        "temperature": temperature,
+        "top_p": top_p,
+        "top_k": top_k,
+        "repetition_penalty": repetition_penalty,
+    }
     thread = Thread(target=model.generate, kwargs=generation_kwargs)
     thread.start()
     buffer = ""
@@ -143,16 +151,18 @@ def generate_image(model_name: str, text: str, image: Image.Image,
         time.sleep(0.01)
         yield buffer
 
-@spaces.GPU
-def generate_video(model_name: str, text: str, video_path: str,
-                   max_new_tokens: int = 1024,
-                   temperature: float = 0.6,
-                   top_p: float = 0.9,
-                   top_k: int = 50,
-                   repetition_penalty: float = 1.2):
-    """
-    Generates responses using the selected model for video input.
-    """
+
+def generate_video(
+    model_name: str,
+    text: str,
+    video_path: str,
+    max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS,
+    temperature: float = 0.6,
+    top_p: float = 0.9,
+    top_k: int = 50,
+    repetition_penalty: float = 1.2,
+):
+    """Generates responses using the selected model for video input."""
     if model_name == "RolmOCR":
         processor = processor_m
         model = model_m
@@ -176,7 +186,7 @@ def generate_video(model_name: str, text: str, video_path: str,
     frames = downsample_video(video_path)
     messages = [
         {"role": "system", "content": [{"type": "text", "text": "You are a helpful assistant."}]},
-        {"role": "user", "content": [{"type": "text", "text": text}]}
+        {"role": "user", "content": [{"type": "text", "text": text}]},
     ]
     for frame in frames:
         image, timestamp = frame
@@ -189,9 +199,11 @@ def generate_video(model_name: str, text: str, video_path: str,
         return_dict=True,
         return_tensors="pt",
         truncation=False,
-        max_length=MAX_INPUT_TOKEN_LENGTH
+        max_length=MAX_INPUT_TOKEN_LENGTH,
     ).to(device)
-    streamer = TextIteratorStreamer(processor, skip_prompt=True, skip_special_tokens=True)
+    streamer = TextIteratorStreamer(
+        processor, skip_prompt=True, skip_special_tokens=True
+    )
     generation_kwargs = {
         **inputs,
         "streamer": streamer,
@@ -211,79 +223,57 @@ def generate_video(model_name: str, text: str, video_path: str,
         time.sleep(0.01)
         yield buffer
 
-# Define examples for image and video inference
-image_examples = [
-    ["Perform OCR on the Image.", "images/1.jpg"],
-    ["Extract the table content", "images/2.png"]
-]
 
-video_examples = [
-    ["Explain the Ad in Detail", "videos/1.mp4"],
-    ["Identify the main actions in the cartoon video", "videos/2.mp4"]
-]
+app = Flask(__name__)
+UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "uploads")
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
-css = """
-.submit-btn {
-    background-color: #2980b9 !important;
-    color: white !important;
-}
-.submit-btn:hover {
-    background-color: #3498db !important;
-}
-"""
 
-# Create the Gradio Interface
-with gr.Blocks(css=css, theme="bethecloud/storj_theme") as demo:
-    gr.Markdown("# **Multimodal OCR**")
-    with gr.Row():
-        with gr.Column():
-            with gr.Tabs():
-                with gr.TabItem("Image Inference"):
-                    image_query = gr.Textbox(label="Query Input", placeholder="Enter your query here...")
-                    image_upload = gr.Image(type="pil", label="Image")
-                    image_submit = gr.Button("Submit", elem_classes="submit-btn")
-                    gr.Examples(
-                        examples=image_examples,
-                        inputs=[image_query, image_upload]
-                    )
-                with gr.TabItem("Video Inference"):
-                    video_query = gr.Textbox(label="Query Input", placeholder="Enter your query here...")
-                    video_upload = gr.Video(label="Video")
-                    video_submit = gr.Button("Submit", elem_classes="submit-btn")
-                    gr.Examples(
-                        examples=video_examples,
-                        inputs=[video_query, video_upload]
-                    )
-            with gr.Accordion("Advanced options", open=False):
-                max_new_tokens = gr.Slider(label="Max new tokens", minimum=1, maximum=MAX_MAX_NEW_TOKENS, step=1, value=DEFAULT_MAX_NEW_TOKENS)
-                temperature = gr.Slider(label="Temperature", minimum=0.1, maximum=4.0, step=0.1, value=0.6)
-                top_p = gr.Slider(label="Top-p (nucleus sampling)", minimum=0.05, maximum=1.0, step=0.05, value=0.9)
-                top_k = gr.Slider(label="Top-k", minimum=1, maximum=1000, step=1, value=50)
-                repetition_penalty = gr.Slider(label="Repetition penalty", minimum=1.0, maximum=2.0, step=0.05, value=1.2)
-        with gr.Column():
-            output = gr.Textbox(label="Output", interactive=False, lines=2, scale=2)
-            model_choice = gr.Radio(
-                choices=["Nanonets-OCR-s", "Qwen2-VL-OCR-2B-Instruct", "RolmOCR", "Aya-Vision"],
-                label="Select Model",
-                value="Nanonets-OCR-s"
-            )
-            
-            gr.Markdown("**Model Info**")
-            gr.Markdown("> [Qwen2-VL-OCR-2B-Instruct](https://huggingface.co/prithivMLmods/Qwen2-VL-OCR-2B-Instruct): qwen2-vl-ocr-2b-instruct model is a fine-tuned version of qwen2-vl-2b-instruct, tailored for tasks that involve [messy] optical character recognition (ocr), image-to-text conversion, and math problem solving with latex formatting.")
-            gr.Markdown("> [Nanonets-OCR-s](https://huggingface.co/nanonets/Nanonets-OCR-s): nanonets-ocr-s is a powerful, state-of-the-art image-to-markdown ocr model that goes far beyond traditional text extraction. it transforms documents into structured markdown with intelligent content recognition and semantic tagging.")
-            gr.Markdown("> [RolmOCR](https://huggingface.co/reducto/RolmOCR): rolmocr, high-quality, openly available approach to parsing pdfs and other complex documents oprical character recognition. it is designed to handle a wide range of document types, including scanned documents, handwritten text, and complex layouts.")
-            gr.Markdown("> [Aya-Vision](https://huggingface.co/CohereLabs/aya-vision-8b): cohere labs aya vision 8b is an open weights research release of an 8-billion parameter model with advanced capabilities optimized for a variety of vision-language use cases, including ocr, captioning, visual reasoning, summarization, question answering, code, and more.")
+@app.route("/", methods=["GET"])
+def index():
+    return render_template("index.html", result=None)
 
-    image_submit.click(
-        fn=generate_image,
-        inputs=[model_choice, image_query, image_upload, max_new_tokens, temperature, top_p, top_k, repetition_penalty],
-        outputs=output
+
+def run_generator(gen):
+    result = ""
+    for chunk in gen:
+        result = chunk
+    return result
+
+
+@app.route("/image", methods=["POST"])
+def image_route():
+    text = request.form.get("text", "")
+    model = request.form.get("model", "Nanonets-OCR-s")
+    file = request.files.get("image")
+    if not file or file.filename == "":
+        return render_template("index.html", result="Please upload an image.")
+    path = os.path.join(app.config["UPLOAD_FOLDER"], file.filename)
+    file.save(path)
+    image = Image.open(path).convert("RGB")
+    result = run_generator(
+        generate_image(model, text, image)
     )
-    video_submit.click(
-        fn=generate_video,
-        inputs=[model_choice, video_query, video_upload, max_new_tokens, temperature, top_p, top_k, repetition_penalty],
-        outputs=output
+    os.remove(path)
+    return render_template("index.html", result=result)
+
+
+@app.route("/video", methods=["POST"])
+def video_route():
+    text = request.form.get("text", "")
+    model = request.form.get("model", "Nanonets-OCR-s")
+    file = request.files.get("video")
+    if not file or file.filename == "":
+        return render_template("index.html", result="Please upload a video.")
+    path = os.path.join(app.config["UPLOAD_FOLDER"], file.filename)
+    file.save(path)
+    result = run_generator(
+        generate_video(model, text, path)
     )
+    os.remove(path)
+    return render_template("index.html", result=result)
+
 
 if __name__ == "__main__":
-    demo.queue(max_size=30).launch(share=True, mcp_server=True, ssr_mode=False, show_error=True)
+    app.run(host="0.0.0.0", port=7860, debug=False)
