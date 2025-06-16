@@ -23,6 +23,7 @@ MAX_INPUT_TOKEN_LENGTH = int(os.getenv("MAX_INPUT_TOKEN_LENGTH", "4096"))
 
 # Select device
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+dtype = torch.float16 if device.type == "cuda" else torch.float32
 
 # Load RolmOCR
 MODEL_ID_M = "reducto/RolmOCR"
@@ -30,8 +31,11 @@ processor_m = AutoProcessor.from_pretrained(MODEL_ID_M, trust_remote_code=True)
 model_m = Qwen2_5_VLForConditionalGeneration.from_pretrained(
     MODEL_ID_M,
     trust_remote_code=True,
-    torch_dtype=torch.float16
-).to(device).eval()
+    torch_dtype=dtype
+)
+if device.type == "cuda":
+    model_m = model_m.to(device)
+model_m = model_m.eval()
 
 # Load Qwen2-VL-OCR-2B-Instruct
 #MODEL_ID_X = "prithivMLmods/Qwen2-VL-OCR-2B-Instruct"
@@ -89,8 +93,9 @@ def generate_image(
     top_p: float = 0.9,
     top_k: int = 50,
     repetition_penalty: float = 1.2,
-):
+): 
     """Generates responses using the selected model for image input."""
+    start = time.time()
     if model_name == "RolmOCR":
         processor = processor_m
         model = model_m
@@ -128,7 +133,9 @@ def generate_image(
         padding=True,
         truncation=False,
         max_length=MAX_INPUT_TOKEN_LENGTH,
-    ).to(device)
+    )
+    if device.type == "cuda":
+        inputs = inputs.to(device)
     streamer = TextIteratorStreamer(
         processor, skip_prompt=True, skip_special_tokens=True
     )
@@ -136,10 +143,10 @@ def generate_image(
         **inputs,
         "streamer": streamer,
         "max_new_tokens": max_new_tokens,
-        "do_sample": True,
-        "temperature": temperature,
-        "top_p": top_p,
-        "top_k": top_k,
+        "do_sample": False,
+        "temperature": 1.0,
+        "top_p": 1.0,
+        "top_k": 0,
         "repetition_penalty": repetition_penalty,
     }
     thread = Thread(target=model.generate, kwargs=generation_kwargs)
@@ -150,6 +157,8 @@ def generate_image(
         buffer = buffer.replace("<|im_end|>", "")
         time.sleep(0.01)
         yield buffer
+    end = time.time()
+    print(f"⏱️ Verarbeitung dauerte: {end - start:.2f} Sekunden")
 
 
 def generate_video(
@@ -163,6 +172,7 @@ def generate_video(
     repetition_penalty: float = 1.2,
 ):
     """Generates responses using the selected model for video input."""
+    start = time.time()
     if model_name == "RolmOCR":
         processor = processor_m
         model = model_m
@@ -200,7 +210,9 @@ def generate_video(
         return_tensors="pt",
         truncation=False,
         max_length=MAX_INPUT_TOKEN_LENGTH,
-    ).to(device)
+    )
+    if device.type == "cuda":
+        inputs = inputs.to(device)
     streamer = TextIteratorStreamer(
         processor, skip_prompt=True, skip_special_tokens=True
     )
@@ -208,10 +220,10 @@ def generate_video(
         **inputs,
         "streamer": streamer,
         "max_new_tokens": max_new_tokens,
-        "do_sample": True,
-        "temperature": temperature,
-        "top_p": top_p,
-        "top_k": top_k,
+        "do_sample": False,
+        "temperature": 1.0,
+        "top_p": 1.0,
+        "top_k": 0,
         "repetition_penalty": repetition_penalty,
     }
     thread = Thread(target=model.generate, kwargs=generation_kwargs)
@@ -222,6 +234,8 @@ def generate_video(
         buffer = buffer.replace("<|im_end|>", "")
         time.sleep(0.01)
         yield buffer
+    end = time.time()
+    print(f"⏱️ Verarbeitung dauerte: {end - start:.2f} Sekunden")
 
 
 app = Flask(__name__)
